@@ -1,0 +1,19 @@
+# 运行期产物，不进版本库
+# Runtime artifacts, keep them out of the repo
+hosts-learned.json
+gfwlist.txt
+gfwlist.txt.bak
+*.aria2
+*.tmp
+__pycache__/
+*.py[cod]
+
+# 二进制按需自取；快捷方式里是本机绝对路径
+# Grab the binary yourself; the shortcut holds machine-specific absolute paths
+aria2c.exe
+ffmpeg.exe
+*.lnk
+
+# 当 dir 指向仓库内时的下载产物
+# Downloads, in case "dir" points inside the repo
+Downloads/
