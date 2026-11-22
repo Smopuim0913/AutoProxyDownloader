@@ -56,6 +56,9 @@ DEFAULTS = {
     "min_split_size": "1M",
     "mtime": True,
     "overwrite": False,
+    "play_sound": True,            # 全部任务结束后播放提示音
+    "finish_sound": "finish.wav",  # 提示音文件；相对路径按程序目录解析
+    "close_on_finish": False,      # 结束后自动关闭控制台窗口（图形启动器里生效）
     "fallback": True,              # 首轮失败后换一种出网方式再试一次
     "retry": 5,
     "first_tries": 2,              # 首轮出网方式的最大尝试次数，用尽即换方式
@@ -1220,6 +1223,17 @@ def build_parser():
     p.add_argument("--ffmpeg", default=S,
                    help=T("ffmpeg 可执行文件路径（仅 HLS 流用得到，默认在程序目录 / PATH 里找）",
                           "path to the ffmpeg executable (HLS only; defaults to the program folder / PATH)"))
+    p.add_argument("--sound", dest="finish_sound", default=S, metavar="FILE",
+                   help=T("完成后播放这个提示音（默认 finish.wav，仅 .wav 原生支持）",
+                          "play this sound when finished (default finish.wav; only .wav plays natively)"))
+    p.add_argument("--no-sound", dest="play_sound", action="store_false", default=S,
+                   help=T("完成后不播放提示音", "do not play a sound when finished"))
+    p.add_argument("--close-on-finish", dest="close_on_finish", action="store_true", default=S,
+                   help=T("结束后自动关闭控制台窗口（图形启动器里生效）",
+                          "close the console window at the end (effective in the GUI launcher)"))
+    p.add_argument("--keep-open", dest="close_on_finish", action="store_false", default=S,
+                   help=T("结束后保留窗口（覆盖配置里的 true）",
+                          "keep the window open (overrides a true in the config)"))
     p.add_argument("--config", default=S,
                    help=T("配置文件路径（默认 AutoProxyDownloader.json）",
                           "config file (default AutoProxyDownloader.json)"))
@@ -1376,6 +1390,49 @@ def selftest():
     print("\n" + T("自检结果：%s（%d 项失败）", "selftest: %s (%d failed)")
           % (T("全部通过", "all passed") if fails == 0 else T("有失败", "failures"), fails))
     return 0 if fails == 0 else 1
+
+
+# ---------------------------------------------------------------- 完成提示音
+
+def _play_audio(path):
+    """播放一个音频文件，返回 (是否播放, 失败原因)。"""
+    if sys.platform == "win32":
+        if path.suffix.lower() == ".wav":
+            import winsound
+            winsound.PlaySound(str(path), winsound.SND_FILENAME)   # 同步播放，放完才继续
+            return True, ""
+        player = shutil.which("ffplay")
+        if player:
+            subprocess.run([player, "-autoexit", "-nodisp", "-loglevel", "quiet", str(path)],
+                           check=False)
+            return True, ""
+        return False, T("Windows 上只有 .wav 能直接播（要放 mp3 可装 ffplay）",
+                        "on Windows only .wav plays natively (install ffplay for other formats)")
+    cmds = [["afplay", str(path)]] if sys.platform == "darwin" \
+        else [["paplay", str(path)], ["aplay", str(path)]]
+    for cmd in cmds:
+        if shutil.which(cmd[0]):
+            subprocess.run(cmd, check=False)
+            return True, ""
+    return False, T("找不到可用的播放器", "no audio player available")
+
+
+def play_finish_sound(cfg, log):
+    if not cfg.get("play_sound"):
+        return False
+    name = str(cfg.get("finish_sound") or "").strip()
+    if not name:
+        return False
+    path = resolve_local_path(name, cfg)
+    if not path.is_file():
+        log("! " + T("找不到提示音 %s（可用 --sound 指定，或把 finish.wav 放到程序目录）",
+                     "sound file not found: %s (point at one with --sound, or put finish.wav next to the scripts)")
+            % path)
+        return False
+    ok, why = _play_audio(path)
+    if not ok:
+        log("! " + T("提示音没播成：%s", "could not play the sound: %s") % why)
+    return ok
 
 
 # ---------------------------------------------------------------- 输出
@@ -1565,6 +1622,8 @@ def main(argv=None):
         kept = sum(1 for i in items if i.mtime_epoch)
         if cfg["mtime"]:
             log(T("其中 %d 个文件带服务器时间戳", "%d file(s) carry the server timestamp") % kept)
+    if not args.json:
+        play_finish_sound(cfg, log)     # --json 是脚本模式，不发声
     return 0 if all(i.status in ("OK", "SKIP") for i in items) else 1
 
 

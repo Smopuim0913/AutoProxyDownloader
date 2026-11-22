@@ -19,6 +19,7 @@
 - **gfwlist 缓存与自动更新。** 首次使用或缓存过期时经代理拉取，原样保存（仍是 base64），旧文件留 `gfwlist.txt.bak`；拉取失败则继续用缓存。
 - **未收录但被墙的域名。** 网络类错误会自动换另一种出网方式重试一轮，成功的那次结论按域名记下来，下次直接从能通的方式起步。
 - **双引擎。** 普通文件走 aria2c；路径以 `.m3u8` / `.m3u` 结尾的地址走 ffmpeg（`ffmpeg -i <url> -c copy <名字>.mp4`），一个 HLS 流直接落成按播放列表命名的 `.mp4`。是否加代理仍由 gfwlist 判断，只在判定需要代理时才补 `-http_proxy`。
+- **完成提示音与可选自动关窗。** 一批下完会播一小段提示音（默认 `finish.wav`，可用 `--sound` 换、`--no-sound` 静音）；图形启动器还能不按任意键直接关掉控制台窗口（`--close-on-finish`）。
 - **批量、续传、跳过。** 线程池调度多个 aria2c 进程，`--continue` 续传，已完整的文件直接跳过，另有 `--dry-run` 与 `--json` 便于脚本化。
 - **控制台反馈。** 每个任务开头就报出出网方式（`直连下载：<url>` 或 `代理下载（<代理>）：<url>`），交互式控制台里还有一行原地刷新的进度（字节、百分比、速度、ETA）；输出被重定向时则按 10% 一档打印。
 - **双语界面。** 文案跟随 Windows 界面语言（中文系统用中文，其余用英文），可用 `--lang auto|zh|en` 或 `APD_LANG=zh|en` 强制指定。
@@ -63,7 +64,7 @@ python -X utf8 AutoProxyDownloader.py --selftest
 
 Windows 上建议带 `-X utf8`，避免控制台编码问题。
 
-双击 `AutoProxyDownloader.lnk` 走图形流程：输入或粘贴地址（`Ctrl+Enter` 确认、`Esc` 取消），随后下载在控制台里进行，结束时按任意键关闭窗口。不想留这一步可设环境变量 `APD_NO_PAUSE=1`（改名前的 `ARIA2DL_NO_PAUSE` 同样有效）。
+双击 `AutoProxyDownloader.lnk` 走图形流程：输入或粘贴地址（`Ctrl+Enter` 确认、`Esc` 取消），随后下载在控制台里进行，结束时按任意键关闭窗口。不想留这一步可设环境变量 `APD_NO_PAUSE=1`（改名前的 `ARIA2DL_NO_PAUSE` 同样有效），或在弹框里勾选“结束后自动关闭窗口”。
 
 ![下载弹框](docs/dialog-zh.png)
 
@@ -77,6 +78,10 @@ Windows 上建议带 `-X utf8`，避免控制台编码问题。
 | 代理地址 / 代理模式 | `--proxy`、`--proxy-mode` | 写入 |
 | 保留服务器修改时间 | `--mtime` / `--no-mtime` | 写入 |
 | 直连失败时自动换代理重试 | `--fallback` / `--no-fallback` | 写入 |
+| 完成后播放提示音 | `--sound <文件>` / `--no-sound` | 写入 |
+| 结束后自动关闭窗口 | `--close-on-finish` / `--keep-open` | 写入 |
+
+提示音默认开启，指向脚本同目录的 `finish.wav`（换掉这个文件即可，也可点“选择…”另挑一个；WAV 能直接播，其它格式需要 `PATH` 里有 `ffplay`）。自动关闭默认关闭，正常跑完还会停下来告诉你结果。
 
 “保存为默认配置”默认不勾：勾上再点确定，上面这些选项（含保存目录）会写回 `AutoProxyDownloader.json`（文件里其它键原样保留）；不勾则只作为本次运行的命令行参数传给主程序。没改过的项不会转成参数，所以命令行里已有的同名参数不会被悄悄覆盖。
 
@@ -186,6 +191,8 @@ ffmpeg -i <url> -c copy <名字>.mp4
 | `split` / `connections` / `min_split_size` | `5` / `5` / `1M` | aria2 分片与连接 |
 | `mtime` | `true` | 是否保留服务器时间戳 |
 | `overwrite` | `false` | 覆盖已存在文件（默认跳过） |
+| `play_sound` / `finish_sound` | `true` / `finish.wav` | 结束后是否放提示音，以及放哪个文件（相对路径按脚本目录解析） |
+| `close_on_finish` | `false` | 图形启动器：结束后关掉控制台，而不是等按键 |
 | `fallback` | `true` | 网络类失败后是否换方式重试一次 |
 | `retry` / `first_tries` | `5` / `2` | 后续轮次 / 首轮的最大尝试次数 |
 | `learn` / `learn_path` | `true` / `hosts-learned.json` | 域名学习与记录文件 |
@@ -209,6 +216,8 @@ ffmpeg -i <url> -c copy <名字>.mp4
 | `--first-tries`、`--no-learn`、`--learn-path`、`--forget-learned` | 换方式阈值与域名学习 |
 | `--header`、`--referer`、`--extra-arg` | 附加请求头、Referer、原样透传给 aria2c |
 | `--aria2`、`--ffmpeg` | 两个引擎的可执行文件路径 |
+| `--sound`、`--no-sound` | 结束时播放的提示音 / 不放提示音 |
+| `--close-on-finish`、`--keep-open` | 图形启动器：结束后关闭控制台 / 保留窗口 |
 | `--lang auto\|zh\|en` | 输出语言（默认跟随系统） |
 | `--dry-run`、`--explain`、`--json` | 查看决策与输出 |
 | `--selftest` | 离线规则引擎自检 |
@@ -221,6 +230,7 @@ AutoProxyDownloader_gui.py         图形启动器（弹框输入 → 控制台�
 AutoProxyDownloader.json           配置文件（随仓库提交，路径可移植）
 AutoProxyDownloader.ico            应用图标（16–256 px，快捷方式使用）
 icon.png                           本 README 用的图标图
+finish.wav                         默认的“下载完成”提示音（1 秒，44.1 kHz 单声道）
 docs/dialog-zh.png、dialog-en.png  两份 README 用的弹框截图
 AutoProxyDownloader.lnk            指向图形启动器的 Windows 快捷方式（被忽略，含本机绝对路径）
 .gitignore

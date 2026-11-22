@@ -32,7 +32,10 @@ T = apd.T
 
 CONFIG_NAME = "AutoProxyDownloader.json"
 # 地址只对本次生效、从不入库；保存目录和其它界面选项可以持久化
-SAVED_KEYS = ("dir", "jobs", "retry", "proxy", "proxy_mode", "mtime", "fallback")
+SAVED_KEYS = ("dir", "jobs", "retry", "proxy", "proxy_mode", "mtime", "fallback",
+              "play_sound", "finish_sound", "close_on_finish")
+
+AUTO_CLOSE = False      # 结束时不暂停、直接关掉控制台窗口
 
 
 def load_config():
@@ -92,6 +95,15 @@ def build_extra_args(opts, base):
         out.append("--mtime" if opts["mtime"] else "--no-mtime")
     if bool(opts.get("fallback", True)) != bool(base.get("fallback", True)):
         out.append("--fallback" if opts["fallback"] else "--no-fallback")
+    if str(opts.get("finish_sound", "")) != str(base.get("finish_sound", "")):
+        out += ["--sound", str(opts["finish_sound"])]
+    if bool(opts.get("play_sound", True)) != bool(base.get("play_sound", True)):
+        if opts["play_sound"]:
+            out += ["--sound", str(opts.get("finish_sound") or base.get("finish_sound") or "finish.wav")]
+        else:
+            out.append("--no-sound")
+    if bool(opts.get("close_on_finish", False)) != bool(base.get("close_on_finish", False)):
+        out.append("--close-on-finish" if opts["close_on_finish"] else "--keep-open")
     return out
 
 
@@ -166,6 +178,25 @@ class UrlDialog:
                                       "Retry via the proxy when direct fails"),
                         variable=self.var_fallback).pack(side="left")
 
+        snd = ttk.Frame(box)
+        snd.grid(row=5, column=0, columnspan=3, sticky="we", pady=(8, 0))
+        self.var_sound = tk.BooleanVar(value=bool(self.cfg.get("play_sound", True)))
+        ttk.Checkbutton(snd, text=T("完成后播放提示音", "Play a sound when finished"),
+                        variable=self.var_sound,
+                        command=self._sync_sound).pack(side="left")
+        self.var_sound_file = tk.StringVar(value=str(self.cfg.get("finish_sound") or "finish.wav"))
+        self.ent_sound = ttk.Entry(snd, textvariable=self.var_sound_file, width=18)
+        self.ent_sound.pack(side="left", fill="x", expand=True, padx=(6, 6))
+        self.btn_sound = ttk.Button(snd, text=T("选择…", "Pick…"), width=8, command=self._pick_sound)
+        self.btn_sound.pack(side="left")
+
+        self.var_close = tk.BooleanVar(value=bool(self.cfg.get("close_on_finish", False)))
+        ttk.Checkbutton(box, text=T("结束后自动关闭窗口（不再等待按键）",
+                                    "Close this window when finished (no key press)"),
+                        variable=self.var_close).grid(row=6, column=0, columnspan=3,
+                                                      sticky="w", pady=(8, 0))
+        self._sync_sound()
+
         self.var_save = tk.BooleanVar(value=False)
         ttk.Checkbutton(frm, text=T("保存为默认配置（写入 %s）" % CONFIG_NAME,
                                     "Save as default config (writes %s)" % CONFIG_NAME),
@@ -215,6 +246,24 @@ class UrlDialog:
             self.var_dir.set(os.path.normpath(path))
             self._refresh_dir_hint()
 
+    def _sync_sound(self):
+        state = "normal" if self.var_sound.get() else "disabled"
+        self.ent_sound.configure(state=state)
+        self.btn_sound.configure(state=state)
+
+    def _pick_sound(self):
+        from tkinter import filedialog
+        cur = expand_dir(self.var_sound_file.get()) or str(SCRIPT_DIR)
+        init = str(Path(cur).parent) if os.path.isfile(cur) else str(SCRIPT_DIR)
+        path = filedialog.askopenfilename(
+            initialdir=init,
+            title=T("选择完成提示音", "Pick the finish sound"),
+            filetypes=[("WAV", "*.wav"), ("Audio", "*.wav *.mp3 *.ogg *.m4a"), ("All files", "*.*")])
+        if path:
+            self.var_sound_file.set(os.path.normpath(path))
+            self.var_sound.set(True)
+            self._sync_sound()
+
     def _number(self, var, low, high):
         try:
             v = int(str(var.get()).strip())
@@ -241,6 +290,13 @@ class UrlDialog:
                                    T("并发下载数需在 1–8 之间，重试次数需在 0–20 之间。",
                                      "Parallel downloads must be 1-8 and retries 0-20."))
             return
+        sound = (self.var_sound_file.get() or "").strip()
+        if self.var_sound.get() and not sound:
+            messagebox.showwarning(T("提示音未指定", "No sound file"),
+                                   T("勾选了播放提示音，但没给出音频文件（可点“选择…”挑一个，或取消勾选）。",
+                                     "The sound is enabled but no file is given "
+                                     "(pick one with the button, or clear the checkbox)."))
+            return
         self.options = {
             "dir": dir_raw,
             "jobs": jobs,
@@ -249,6 +305,9 @@ class UrlDialog:
             "proxy_mode": str(self.var_mode.get() or "auto"),
             "mtime": bool(self.var_mtime.get()),
             "fallback": bool(self.var_fallback.get()),
+            "play_sound": bool(self.var_sound.get()),
+            "finish_sound": sound or str(self.cfg.get("finish_sound") or "finish.wav"),
+            "close_on_finish": bool(self.var_close.get()),
         }
         if self.var_save.get():
             self.saved = self._save_defaults()
@@ -323,7 +382,17 @@ def pause():
             pass
 
 
+def wants_close(extra, cfg):
+    """结束不结束窗口：命令行显式开关优先，否则看配置。"""
+    if "--keep-open" in extra:
+        return False
+    if "--close-on-finish" in extra:
+        return True
+    return bool((cfg or {}).get("close_on_finish", False))
+
+
 def main():
+    global AUTO_CLOSE
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
@@ -347,8 +416,11 @@ def main():
         forward += build_extra_args(dlg.options, cfg)
         focus_console()
     else:
+        cfg, _cfg_path = load_config()
         print(T("接收到 %d 个地址，跳过输入框直接下载。",
                 "got %d URL(s), skipping the dialog and downloading right away.") % len(urls))
+
+    AUTO_CLOSE = wants_close(forward, cfg)
 
     print("")
     rc = 0
@@ -377,20 +449,29 @@ def selftest_gui():
         dlg.text.delete("1.0", "end")
         dlg.text.insert("1.0", "https://example.com/a.zip\n\n  https://example.com/b.zip  \n#注释\n")
         dlg.var_dir.set("%USERPROFILE%\\Downloads\\apd-test")
-        dlg.var_jobs.set("5")
-        dlg.var_retry.set("3")
+        # 取一个和当前配置不同的值，才能验证“改过的项才转参数”
+        jobs_new = 5 if int(cfg.get("jobs", 3)) != 5 else 4
+        retry_new = 3 if int(cfg.get("retry", 5)) != 3 else 2
+        dlg.var_jobs.set(str(jobs_new))
+        dlg.var_retry.set(str(retry_new))
         dlg.var_mtime.set(False)
+        dlg.var_sound.set(False)          # 配置里默认是开，这里关掉 → 应转成 --no-sound
+        dlg.var_close.set(True)           # 配置里默认是关，这里打开 → 应转成 --close-on-finish
         dlg.var_save.set(True)
         dlg._ok()
 
         ok_urls = dlg.result == ["https://example.com/a.zip", "https://example.com/b.zip"]
         args = build_extra_args(dlg.options, cfg)
-        ok_args = all(x in args for x in ("-d", "--jobs", "5", "--retry", "3", "--no-mtime"))
+        ok_args = all(x in args for x in ("-d", "--jobs", str(jobs_new), "--retry", str(retry_new),
+                                         "--no-mtime", "--no-sound", "--close-on-finish"))
         saved = json.loads(target.read_text(encoding="utf-8")) if target.exists() else {}
         # 保存目录跟着“保存为默认配置”一起入库；地址永远不写进配置
-        ok_save = (saved.get("jobs") == 5 and saved.get("retry") == 3
+        ok_save = (saved.get("jobs") == jobs_new and saved.get("retry") == retry_new
                    and saved.get("mtime") is False
                    and saved.get("dir") == "%USERPROFILE%\\Downloads\\apd-test"
+                   and saved.get("play_sound") is False
+                   and saved.get("close_on_finish") is True
+                   and saved.get("finish_sound")
                    and not any(isinstance(v, list) and any("http" in str(x) for x in v)
                                for v in saved.values()))
         ok = ok_urls and ok_args and ok_save
@@ -408,5 +489,6 @@ if __name__ == "__main__":
         sys.exit(selftest_gui())
     setup_console()
     rc = main()
-    pause()
+    if not AUTO_CLOSE:
+        pause()
     sys.exit(rc)

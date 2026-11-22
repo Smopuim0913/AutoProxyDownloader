@@ -19,6 +19,7 @@ The timestamp part matters for mirroring: `curl -R` / `wget --timestamping` user
 - **`gfwlist` cache with auto-refresh.** Fetched through the proxy on first use or when stale, saved verbatim (still base64), previous copy kept as `gfwlist.txt.bak`; if the fetch fails, the cached copy keeps working.
 - **Unlisted-but-blocked hosts.** Direct failures of network class automatically retry through the proxy (and vice versa), and the successful flip is remembered per host so the next run starts on the mode that works.
 - **Two engines.** Plain files go through aria2c; URLs ending in `.m3u8` / `.m3u` go through ffmpeg (`ffmpeg -i <url> -c copy <name>.mp4`), so an HLS stream becomes one `.mp4` named after the playlist. The proxy decision is still gfwlist's: `-http_proxy` is only added when that URL is judged proxied.
+- **Finish chime, optional auto-close.** When the batch ends a short chime plays (`finish.wav`, override with `--sound`, silence with `--no-sound`); the GUI launcher can also close its console window instead of waiting for a key (`--close-on-finish`).
 - **Batch, resume, skip.** Thread pool over aria2 processes, `--continue` for partial files, existing complete files are skipped, `--dry-run` and `--json` for scripting.
 - **Console feedback.** Every task announces itself (`Direct Downloading: <url>` or `Downloading with proxy (<proxy>): <url>`), and a console run shows a live progress line per task (bytes, percentage, speed, ETA); when output is redirected, progress is printed in 10% steps instead.
 - **Bilingual UI.** Messages follow the Windows UI language (Chinese on a Chinese system, English otherwise); override with `--lang auto|zh|en` or `APD_LANG=zh|en`.
@@ -63,7 +64,7 @@ python -X utf8 AutoProxyDownloader.py --selftest
 
 `-X utf8` avoids console encoding trouble on Windows.
 
-Double-click `AutoProxyDownloader.lnk` for the GUI flow: type/paste one or more URLs (`Ctrl+Enter` to confirm, `Esc` to cancel), the download then runs in the console, and at the end the window waits for any key. Set `APD_NO_PAUSE=1` to skip that final pause (the pre-rename `ARIA2DL_NO_PAUSE` is still honoured).
+Double-click `AutoProxyDownloader.lnk` for the GUI flow: type/paste one or more URLs (`Ctrl+Enter` to confirm, `Esc` to cancel), the download then runs in the console, and at the end the window waits for any key. Set `APD_NO_PAUSE=1` to skip that final pause (the pre-rename `ARIA2DL_NO_PAUSE` is still honoured), or tick “Close the window when finished” in the dialog.
 
 ![URL dialog](docs/dialog-en.png)
 
@@ -77,6 +78,10 @@ The dialog also carries the options that are worth changing per run:
 | Proxy address / mode | `--proxy`, `--proxy-mode` | yes |
 | Preserve server timestamp | `--mtime` / `--no-mtime` | yes |
 | Retry through the proxy when direct fails | `--fallback` / `--no-fallback` | yes |
+| Play a sound when finished | `--sound <file>` / `--no-sound` | yes |
+| Close the window when finished | `--close-on-finish` / `--keep-open` | yes |
+
+The chime is on by default and points at `finish.wav` next to the scripts (replace the file, or pick another one with the button — WAV plays natively, other formats need `ffplay` on `PATH`). Auto-close is off by default, so a finished run still tells you so before the window goes away.
 
 “Save as default config” is off by default. Tick it and these values — including the directory — are written back into `AutoProxyDownloader.json` (other keys in the file are preserved); leave it off and the dialog's values are only passed to this run as command-line flags. Fields you did not touch are not turned into flags at all, so anything already on the command line keeps working.
 
@@ -186,6 +191,8 @@ The successful flip is recorded per host in `hosts-learned.json` (`"mode": "prox
 | `split` / `connections` / `min_split_size` | `5` / `5` / `1M` | aria2 segmentation |
 | `mtime` | `true` | preserve the server timestamp |
 | `overwrite` | `false` | overwrite existing files instead of skipping |
+| `play_sound` / `finish_sound` | `true` / `finish.wav` | chime at the end of a batch, and the file it plays (resolved like `gfwlist`) |
+| `close_on_finish` | `false` | GUI launcher: close the console instead of waiting for a key |
 | `fallback` | `true` | switch egress mode once after a network-class failure |
 | `retry` / `first_tries` | `5` / `2` | aria2 attempts for later rounds / the first round |
 | `learn` / `learn_path` | `true` / `hosts-learned.json` | host learning and its record file |
@@ -209,6 +216,8 @@ Run `python AutoProxyDownloader.py --help` for the complete list. The frequently
 | `--first-tries`, `--no-learn`, `--learn-path`, `--forget-learned` | switching and host learning |
 | `--header`, `--referer`, `--extra-arg` | extra request headers, Referer, raw aria2c flags |
 | `--aria2`, `--ffmpeg` | explicit paths to the two engines |
+| `--sound`, `--no-sound` | chime file at the end / silence it |
+| `--close-on-finish`, `--keep-open` | GUI launcher: close the console at the end or keep it |
 | `--lang auto\|zh\|en` | output language (default: follow the system) |
 | `--dry-run`, `--explain`, `--json` | inspect decisions and output |
 | `--selftest` | offline rule-engine self-test |
@@ -221,6 +230,7 @@ AutoProxyDownloader_gui.py             GUI launcher (URL dialog -> console downl
 AutoProxyDownloader.json               configuration (committed, portable defaults)
 AutoProxyDownloader.ico                application icon (16-256 px, used by the shortcut)
 icon.png                               icon source for this README
+finish.wav                             default "download finished" chime (1 s, 44.1 kHz mono)
 docs/dialog-en.png, dialog-zh.png      dialog screenshots used by the two READMEs
 AutoProxyDownloader.lnk                Windows shortcut to the GUI launcher (gitignored, machine-specific)
 .gitignore
